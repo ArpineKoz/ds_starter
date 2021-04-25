@@ -94,8 +94,8 @@ class OutlierDetector:
 
     def negative_trend_by_days(data, column, cloudiness, output_column_name, window=10, limit=-0.75):
         """
-        Given a dataframe of inverter daily efficiencies calculates negative trends over a window of days. 
-        Returns the dataframe with a new column, with 1 where the negative trend is below a certain limit.
+            Given a dataframe of inverter daily efficiencies calculates negative trends over a window of days. 
+            Returns the dataframe with a new column, with 1 where the negative trend is below a certain limit.
         """
         data=data.merge(cloudiness, on='DAY')
         data['efficiency_trend']=0
@@ -107,6 +107,48 @@ class OutlierDetector:
         data.loc[(data['efficiency_trend']<=limit)&(data['weather_trend']<=0), output_column_name]=1
         ####
         return data.drop(columns=['efficiency_trend', 'weather_trend', 'cloudiness'])
+
+    @staticmethod
+    def efficiency_drop_by_day(data, column, outlier_coeff, drop_column_name, jump_column_name, window=20):
+        """
+            Given a dataframe of inverter daily efficiencies calculates efficiency jumps and falls relative to inverter history.
+        """
+        if drop_column_name:
+            data[drop_column_name]=0
+        if jump_column_name:
+            data[jump_column_name]=0
+        data['efficiency_lower_limit']=0
+        data['efficiency_higher_limit']=0
+        if window:
+            for inv in data.SOURCE_KEY.unique():
+                data.loc[data.SOURCE_KEY==inv, 'efficiency_lower_limit']=data[data.SOURCE_KEY==inv][column].rolling(window=window).median()-outlier_coeff*data[data.SOURCE_KEY==inv][column].rolling(window=window).std()
+                data.loc[data.SOURCE_KEY==inv, 'efficiency_higher_limit']=data[data.SOURCE_KEY==inv][column].rolling(window=window).median()+outlier_coeff*data[data.SOURCE_KEY==inv][column].rolling(window=window).std()
+        else:
+            for inv in data.SOURCE_KEY.unique():
+                data.loc[data.SOURCE_KEY==inv, 'efficiency_lower_limit']=data[data.SOURCE_KEY==inv][column].median()-outlier_coeff*data[data.SOURCE_KEY==inv][column].std()
+                data.loc[data.SOURCE_KEY==inv, 'efficiency_higher_limit']=data[data.SOURCE_KEY==inv][column].median()+outlier_coeff*data[data.SOURCE_KEY==inv][column].std()
+        if drop_column_name:
+            data.loc[data[column]<data['efficiency_lower_limit'], drop_column_name]=1
+        if jump_column_name:
+            data.loc[data[column]>data['efficiency_higher_limit'], jump_column_name]=1
+        return data.drop(columns=['efficiency_lower_limit', 'efficiency_higher_limit'])
+
+    @staticmethod
+    def get_inefficient_inverters_day(data, column, output_column_name, anomaly_limit = 2):
+        data[output_column_name] = 0
+        for _,d in data.groupby('DAY'):
+            col_mean = d[column].mean()
+            col_std = d[column].std()
+            data.loc[d[(d[column] > col_mean + anomaly_limit * col_std) | 
+                (d[column] < col_mean - anomaly_limit * col_std)].index,output_column_name] = 1
+        return data
+
+    @staticmethod
+    def get_inefficient_inverters_window(data, column, output_column_name, window=7):
+        data[output_column_name] = 0
+        for inv in data['SOURCE_KEY'].unique():
+            data.loc[data['SOURCE_KEY']==inv, output_column_name]=data[data['SOURCE_KEY']==inv][column].rolling(window = window).min()
+        return data
 
 def main(weather_path, generation_path):
     if not os.path.isfile(weather_path):

@@ -13,7 +13,7 @@ class AlarmGeneration():
 
         return data
 
-    def __get_inverter_daily_efficiency(self, data, datavariable_x, variable_y):
+    def __get_inverter_daily_efficiency(self, data, variable_x, variable_y):
 
 
         return data, daily_data

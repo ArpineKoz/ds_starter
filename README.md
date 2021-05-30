@@ -34,12 +34,3 @@ This project contains the results of the analysis done to evaluate the possibili
 |
 ├── tests              <- Unit and data tests for the project code.
 ```
-
-## Data
-
-### Original data
-
-
---------
-
-Project created by

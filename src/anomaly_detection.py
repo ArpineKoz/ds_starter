@@ -28,12 +28,9 @@ class AnomalyDetection:
         self.weather_df['Time'] = self.weather_df.DATE_TIME.dt.time
         self.weather_df['HOUR'] = self.weather_df.DATE_TIME.dt.hour
 
-        print(self.weather_df.head())
-
         self.merged_df = pd.merge(self.generation_df, self.weather_df, how='inner', on=[
                                   'DATE_TIME'], suffixes=('', '_y'))
 
-        print(self.merged_df.head())
 
     def find_cloudiness_v1(self, col_name):
         # Removing outliers from the max curve
@@ -217,63 +214,13 @@ class AnomalyDetection:
         return data
 
     def start(self):
-        cloudiness_temp_v1 = self.find_cloudiness_v1('MODULE_TEMPERATURE')
-        cloudiness_temp_v2 = self.find_cloudiness_v2('MODULE_TEMPERATURE')
-        plt.figure()
-        plt.plot(cloudiness_temp_v1['DAY'],
-                 cloudiness_temp_v1['cloudiness'], '.')
-        plt.plot(cloudiness_temp_v2['DAY'],
-                 cloudiness_temp_v2['cloudiness'], '.')
-        plt.xlabel('day')
-        plt.ylabel('cloudiness from module temeprature')
-        plt.savefig('../reports/cloudiness_MODULE_TEMPERATURE.png')
-
-        cloudiness_v1 = self.find_cloudiness_v1('IRRADIATION')
         cloudiness_v2 = self.find_cloudiness_v2('IRRADIATION')
-        plt.figure()
-        plt.plot(cloudiness_v1['DAY'], cloudiness_v1['cloudiness'], '.')
-        plt.plot(cloudiness_v2['DAY'], cloudiness_v2['cloudiness'], '.')
-        plt.xlabel('day')
-        plt.ylabel('cloudiness from irradiation')
-        plt.savefig('../reports/cloudiness_IRRADIATION.png')
-
-        self.merged_df['DC_efficiency_gross'] = self.merged_df['DC_POWER'] / \
-            self.merged_df['IRRADIATION']
-        self.merged_df = self.get_outliers_in_time('DC_efficiency_gross', [
-            'TIME', 'DAY'], output_column_name="alarm_DC_conversion_outlier", outlier_limit=4)
-        inv0 = self.merged_df[self.merged_df.SOURCE_KEY ==
-                              self.merged_df.SOURCE_KEY.unique()[10]]
-        plt.figure(figsize=(15, 10))
-        plt.plot(inv0['IRRADIATION'], inv0['DC_POWER'], '.')
-        plt.plot(inv0[inv0["alarm_DC_conversion_outlier"] == 1]['IRRADIATION'],
-                 inv0[inv0["alarm_DC_conversion_outlier"] == 1]['DC_POWER'], 'r.')
-        plt.xlabel('irradiation')
-        plt.ylabel('DC_POWER')
-        plt.savefig(
-            '../reports/DC_efficiency_gross_alarm_DC_conversion_outlier.png')
-
         self.merged_df = self.get_outliers_for_fit(
             'IRRADIATION', 'DC_POWER', 'SOURCE_KEY', output_column_name="alarm_DC_conversion_outlier", window='7d', outlier_limit=4)
         inv0 = self.merged_df[self.merged_df.SOURCE_KEY == self.merged_df.SOURCE_KEY.unique()[
             0]]
-        plt.figure(figsize=(15, 10))
-        plt.plot(inv0['IRRADIATION'], inv0['DC_POWER'], '.')
-        plt.plot(inv0[inv0["alarm_DC_conversion_outlier"] == 1]['IRRADIATION'],
-                 inv0[inv0["alarm_DC_conversion_outlier"] == 1]['DC_POWER'], 'r.')
-        plt.xlabel('irradiation')
-        plt.ylabel('DC_POWER')
-        plt.savefig('../reports/IRRADIATION_alarm_DC_conversion_outlier.png')
-
         self.merged_df = self.get_outliers_by_residual(
             'DC_POWER', 'AC_POWER', output_column_name="alarm_AC_conversion_outlier", anomaly_limit=5)
-        plt.figure(figsize=(15, 10))
-        plt.plot(self.merged_df['DC_POWER'], self.merged_df['AC_POWER'], '.')
-        plt.plot(self.merged_df.loc[self.merged_df["alarm_AC_conversion_outlier"] == 1, 'DC_POWER'],
-                 self.merged_df.loc[self.merged_df["alarm_AC_conversion_outlier"] == 1, 'AC_POWER'], 'r.')
-        plt.xlabel('DC power')
-        plt.ylabel('AC power')
-        plt.title('AC vs. DC power')
-        plt.savefig('../reports/outliers_by_residual.png')
 
         # Power conversion efficiency calculation (Irradiation to DC or DC to AC)
         # DC generation
@@ -281,120 +228,50 @@ class AnomalyDetection:
             self.merged_df["alarm_DC_conversion_outlier"] == 0)], 'IRRADIATION', 'DC_POWER', output_column_name="DC_efficiency_unnorm")
         daily_data['DC_efficiency'] = daily_data['DC_efficiency_unnorm'] / \
             daily_data['DC_efficiency_unnorm'].max()
-        print(daily_data.head())
-        plt.figure(figsize=(15, 10))
-        for inv in daily_data.SOURCE_KEY.unique():
-            plt.plot(daily_data[daily_data.SOURCE_KEY == inv]['DAY'],
-                     daily_data[daily_data.SOURCE_KEY == inv]['DC_efficiency'], '.', label=inv)
-        plt.xlabel('day')
-        plt.ylabel('inverter power generation efficiency')
-        plt.savefig('../reports/DC_generation.png')
-        # AC generation
+    
         daily_data_AC = self.get_conversion_coefficients(self.merged_df[(
             self.merged_df["alarm_AC_conversion_outlier"] == 0)], 'DC_POWER', 'AC_POWER', output_column_name="AC_efficiency_unnorm")
         daily_data_AC['AC_efficiency'] = daily_data_AC['AC_efficiency_unnorm'] / \
             daily_data_AC['AC_efficiency_unnorm'].max()
         daily_data.head()
         daily_data = daily_data.merge(daily_data_AC, on=['SOURCE_KEY', 'DAY'])
-        print(daily_data.head())
-        plt.figure(figsize=(15, 10))
-        for inv in daily_data_AC.SOURCE_KEY.unique():
-            plt.plot(daily_data_AC[daily_data_AC.SOURCE_KEY == inv]['DAY'],
-                     daily_data_AC[daily_data_AC.SOURCE_KEY == inv]['AC_efficiency'], '.', label=inv)
-        plt.xlabel('day')
-        plt.ylabel('inverter DC to AC conversion efficiency')
-        plt.savefig('../reports/AC_generation.png')
-
+        
         # Detection of efficiency drops, trends, or inefficient behaviour compared to other inverters
         daily_data = self.negative_trend_by_days(
             daily_data, 'DC_efficiency', cloudiness_v2, output_column_name='alarm_negative_trend', window=10, limit=-0.8)
         daily_data = self.negative_trend_by_days(daily_data, 'DC_efficiency', cloudiness_temp_v2,
                                                  output_column_name='alarm_negative_trend_temp', window=10, limit=-0.8)
-        print(daily_data.head())
-        daily_data[daily_data['alarm_negative_trend'] == 1]
-        plt.figure(figsize=(15, 10))
-        for inv in daily_data[daily_data['alarm_negative_trend'] == 1].SOURCE_KEY.unique():
-            plt.plot(daily_data[daily_data.SOURCE_KEY == inv]['DAY'], daily_data[daily_data.SOURCE_KEY == inv]
-                     ['DC_efficiency']/daily_data[daily_data.SOURCE_KEY == inv]['DC_efficiency'].max(), '.', label=inv)
-        plt.xlabel('day')
-        plt.ylabel('DC conversion coefficient')
-        plt.legend()
-        plt.savefig('../reports/DC conversion coefficient vs day.png')
+
         daily_data = self.negative_trend_by_days(
             daily_data, 'AC_efficiency', cloudiness_v2, output_column_name='alarm_AC_negative_trend', window=10, limit=-0.6)
 
         daily_data[daily_data['alarm_AC_negative_trend'] == 1]
-        plt.figure(figsize=(15, 10))
-        for inv in daily_data[daily_data['alarm_AC_negative_trend'] == 1].SOURCE_KEY.unique():
-            plt.plot(daily_data[daily_data.SOURCE_KEY == inv]['DAY'], daily_data[daily_data.SOURCE_KEY == inv]
-                     ['AC_efficiency']/daily_data[daily_data.SOURCE_KEY == inv]['AC_efficiency'].max(), '.', label=inv)
-        plt.xlabel('day')
-        plt.ylabel('AC conversion coefficient')
-        plt.legend()
-        plt.savefig('../reports/AC conversion coefficient vs day.png')
+        
 
         daily_data = self.efficiency_drop_by_day(
             daily_data, 'DC_efficiency', 2, 'alarm_DC_conversion_fall', 'alarm_DC_conversion_jump', window=7)
         inverters = daily_data[daily_data['alarm_DC_conversion_fall']
                                == 1]['SOURCE_KEY'].unique()
         data = daily_data[daily_data['SOURCE_KEY'].isin(inverters)]
-        plt.figure(figsize=(15, 10))
-        for inv in data.SOURCE_KEY.unique():
-            plt.plot(data[data.SOURCE_KEY == inv]['DAY'],
-                     data[data.SOURCE_KEY == inv]['DC_efficiency'], 'b.')
-        plt.plot(data[data.alarm_DC_conversion_fall == 1]['DAY'],
-                 data[data.alarm_DC_conversion_fall == 1]['DC_efficiency'], 'rx')
-        #plt.plot(data[data.alarm_DC_conversion_jump==1]['DAY'], data[data.alarm_DC_conversion_jump==1]['DC_efficiency'], 'gx')
-        plt.xlabel('day')
-        plt.ylabel('DC conversion coefficient')
-        plt.savefig('../reports/DC_efficiency_drop_by_day.png')
+        
 
         daily_data = self.efficiency_drop_by_day(
             daily_data, 'AC_efficiency', 2, 'alarm_AC_conversion_fall', 'alarm_AC_conversion_jump', window=7)
         inverters = daily_data[daily_data['alarm_AC_conversion_fall']
                                == 1]['SOURCE_KEY'].unique()
         data = daily_data[daily_data['SOURCE_KEY'].isin(inverters)]
-        plt.figure(figsize=(15, 10))
-        for inv in data.SOURCE_KEY.unique():
-            plt.plot(data[data.SOURCE_KEY == inv]['DAY'],
-                     data[data.SOURCE_KEY == inv]['AC_efficiency'], 'b.')
-        plt.plot(data[data.alarm_AC_conversion_fall == 1]['DAY'],
-                 data[data.alarm_AC_conversion_fall == 1]['AC_efficiency'], 'rx')
-        #plt.plot(data[data.alarm_AC_conversion_jump==1]['DAY'], data[data.alarm_AC_conversion_jump==1]['AC_efficiency'], 'gx')
-        plt.xlabel('day')
-        plt.ylabel('AC conversion coefficient')
-        plt.savefig('../reports/AC_efficiency_drop_by_day.png')
 
         daily_data = self.get_inefficient_inverters_day(
             daily_data, 'DC_efficiency', 'alarm_inefficient_inverter_day')
         data = daily_data
-        plt.figure(figsize=(15, 10))
-        for inv in data.SOURCE_KEY.unique():
-            plt.plot(data[data.SOURCE_KEY == inv]['DAY'],
-                     data[data.SOURCE_KEY == inv]['DC_efficiency'], 'b.')
-        plt.plot(data[data.alarm_inefficient_inverter_day == 1]['DAY'],
-                 data[data.alarm_inefficient_inverter_day == 1]['DC_efficiency'], 'rx')
-        plt.xlabel('day')
-        plt.ylabel('DC conversion coefficient')
-        plt.savefig('../reports/alarm_DC_inefficient_inverter_day.png')
-
+        
         daily_data = self.get_inefficient_inverters_day(
             daily_data, 'AC_efficiency', 'alarm_AC_inefficient_inverter_day')
         data = daily_data
-        plt.figure(figsize=(15, 10))
-        for inv in data.SOURCE_KEY.unique():
-            plt.plot(data[data.SOURCE_KEY == inv]['DAY'],
-                     data[data.SOURCE_KEY == inv]['AC_efficiency'], 'b.')
-        plt.plot(data[data.alarm_AC_inefficient_inverter_day == 1]['DAY'],
-                 data[data.alarm_AC_inefficient_inverter_day == 1]['AC_efficiency'], 'rx')
-        plt.xlabel('day')
-        plt.ylabel('AC conversion coefficient')
-        plt.savefig('../reports/alarm_AC_inefficient_inverter_day.png')
-        (data[data.alarm_inefficient_inverter_day == 1]).to_csv(
-            '../reports/alarm_inefficient_inverter_day.csv', index=False)
+        
+        return self.merged_df, daily_data
 
-
-def main(weather_path, generation_path):
+def main(weather_path, generation_path, output_path1, output_path2):
     if not os.path.isfile(weather_path):
         raise Exception(
             f"{weather_path} is not a dataset. Please make sure that the specifced path is correct.")
@@ -405,7 +282,13 @@ def main(weather_path, generation_path):
     generation_df = pd.read_csv(generation_path)
 
     anomaly_detection = AnomalyDetection(weather_df, generation_df)
-    anomaly_detection.start()
+    output_data_full, daily_output=anomaly_detection.start()
+
+    output_data_full.to_csv(
+            '../reports/alarm_inefficient_inverter_day.csv', index=False)
+    daily_output.to_csv(
+            '../reports/alarm_inefficient_inverter_day.csv', index=False)
+
 
 
 if __name__ == '__main__':

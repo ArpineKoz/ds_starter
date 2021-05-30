@@ -239,9 +239,7 @@ class AnomalyDetection:
         # Detection of efficiency drops, trends, or inefficient behaviour compared to other inverters
         daily_data = self.negative_trend_by_days(
             daily_data, 'DC_efficiency', cloudiness_v2, output_column_name='alarm_negative_trend', window=10, limit=-0.8)
-        daily_data = self.negative_trend_by_days(daily_data, 'DC_efficiency', cloudiness_temp_v2,
-                                                 output_column_name='alarm_negative_trend_temp', window=10, limit=-0.8)
-
+        
         daily_data = self.negative_trend_by_days(
             daily_data, 'AC_efficiency', cloudiness_v2, output_column_name='alarm_AC_negative_trend', window=10, limit=-0.6)
 
